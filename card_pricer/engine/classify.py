@@ -12,6 +12,10 @@ SEALED_KEYWORDS = [
     "case", "bundle", "tin", "collection box", "blister",
 ]
 
+# Matches "(JP)", standalone "JP", or "Japanese" as whole words/tokens.
+# Word boundaries keep this from firing on unrelated substrings.
+JAPANESE_PATTERN = re.compile(r"\bjp\b|\bjapanese\b", re.IGNORECASE)
+
 
 @dataclass
 class Card:
@@ -27,6 +31,7 @@ class Card:
     card_type: str = ""
     grading_company: Optional[str] = None
     grade_value: Optional[str] = None
+    is_japanese: bool = False
 
     # Prices
     collectr_price: Optional[float] = None
@@ -51,6 +56,13 @@ class Card:
 
 def classify_card(card: Card) -> Card:
     text = f"{card.condition_or_grade} {card.name}".strip()
+
+    # Detect Japanese prints on the ORIGINAL name/set, before pricing_engine's
+    # query-cleaning strips the "JP" language tag. Japanese and English prints
+    # of the same card trade at different prices, so this flag has to survive
+    # into the pricing engine and scrapers rather than being lost at cleanup.
+    if JAPANESE_PATTERN.search(f"{card.name} {card.set_name}"):
+        card.is_japanese = True
 
     # Collectr grade_id-based detection (set by collectr.py scraper)
     # Format: "GRADE 10", "GRADE 9", "GRADED" etc.

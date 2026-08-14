@@ -27,6 +27,7 @@ COLUMNS = [
     # Card identity
     ("Card Name",             32, WRAP,   "name"),
     ("Set",                   22, WRAP,   "set_name"),
+    ("Language",              10, CENTER, "language"),
     ("Card #",                10, CENTER, "number"),
     ("Condition",             11, CENTER, "condition_or_grade"),
     ("Grading",                9, CENTER, "grading_company"),
@@ -158,6 +159,14 @@ def write_cards_to_excel(cards: list[Card], filename: str | None = None) -> str:
                 elif key == "_link_pc":
                     _make_hyperlink(ws, row_idx, col_idx,
                                     card.pricecharting_result_url, "PriceCharting")
+                continue
+
+            if key == "language":
+                cell = ws.cell(row=row_idx, column=col_idx,
+                                value="Japanese" if card.is_japanese else "English")
+                cell.font = BODY_FONT
+                cell.alignment = CENTER
+                cell.border = THIN
                 continue
 
             if key == "grading_company":

@@ -104,6 +104,25 @@ def _sim(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower().strip(), b.lower().strip()).ratio()
 
 
+JAPAN_SIGNAL_RE = re.compile(r"\bjapan(?:ese)?\b", re.IGNORECASE)
+
+
+def _tile_text(tile) -> str:
+    """Combined title/set/rarity text for a search-result tile, for signal checks."""
+    try:
+        title_el  = tile.query_selector(TITLE_SELECTOR)
+        set_el    = tile.query_selector(SET_NAME_SELECTOR)
+        rarity_el = tile.query_selector(RARITY_SELECTOR)
+        parts = [
+            title_el.inner_text()  if title_el  else "",
+            set_el.inner_text()    if set_el    else "",
+            rarity_el.inner_text() if rarity_el else "",
+        ]
+        return " ".join(parts)
+    except Exception:
+        return ""
+
+
 def _score_tile(tile, card_name: str, set_name: str, card_number: str,
                 card_name_original: str = "") -> float:
     """
@@ -150,7 +169,7 @@ def _score_tile(tile, card_name: str, set_name: str, card_number: str,
 
 
 def search_tcgplayer(query: str, card_name: str = "", set_name: str = "",
-                     card_number: str = "") -> dict:
+                     card_number: str = "", is_japanese: bool = False) -> dict:
     result = {"found": False, "price": None, "url": None}
     card_name   = card_name or query
     card_number = card_number or ""
@@ -232,6 +251,20 @@ def search_tcgplayer(query: str, card_name: str = "", set_name: str = "",
             if best_tile is None or best_score < 0.3:
                 log(f"TCGPlayer: no confident match for '{clean_query}' "
                     f"(best score {best_score:.2f})", level="WARN")
+                browser.close()
+                break
+
+            # Japanese-flagged cards: TCGPlayer's search text is queried without
+            # the "JP" tag (searching it literally tends to return zero results),
+            # so the best-scoring tile is very often the English print. Rather
+            # than silently returning that English price under a Japanese card's
+            # name, require the matched tile to actually reference a Japanese
+            # print/set. No signal → report not-found so pricing_engine falls
+            # back to Collectr's own price instead of a wrong TCGPlayer price.
+            if is_japanese and not JAPAN_SIGNAL_RE.search(_tile_text(best_tile)):
+                log(f"TCGPlayer: best match for Japanese card '{clean_query}' "
+                    f"has no Japan signal — treating as not found to avoid "
+                    f"returning the English print's price", level="WARN")
                 browser.close()
                 break
 

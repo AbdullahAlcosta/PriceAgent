@@ -9,6 +9,9 @@ Rules:
   5. Graded, Collectr ≤ $500            → Collectr price only
   6. Graded, PC miss (>$500)             → Collectr price only (PC note added)
   7. Graded, no Collectr price           → Not Found
+  8. Raw JP, ≤ $500, no Japan-signal match → Collectr fallback (never the
+     English print's price)
+  9. Raw JP, > $500                      → PriceCharting queried with "(JP)"
 """
 
 from unittest.mock import patch
@@ -34,14 +37,23 @@ test_cards = [
          collectr_price=600.00),                                         # 6. graded >500, PC miss
     Card(name="Oddish",            set_name="Base Set",        number="69",
          condition_or_grade="GRADE 10", collectr_grade_value="10"),      # 7. no collectr price
+    Card(name="Espeon ex (JP)",    set_name="Sword & Shield",  number="025/202",
+         collectr_price=80.00),                                          # 8. raw JP ≤500
+    Card(name="Charizard VMAX (JP)", set_name="Sword & Shield", number="025/202",
+         collectr_price=1000.00),                                        # 9. raw JP >500
 ]
 
 
-def fake_tcg(query, card_name="", set_name="", card_number=""):
+def fake_tcg(query, card_name="", set_name="", card_number="", is_japanese=False):
     if "Pikachu" in query:
         return {"found": False, "price": None, "url": None}
     if "Base Set" in query and "Charizard" in query:
         return {"found": True, "price": 750.00, "url": "https://tcg.com/fake"}
+    if is_japanese:
+        # Simulates tcgplayer.py rejecting a match with no Japan signal —
+        # this is the scenario the JP fix exists for: TCGPlayer must not
+        # silently hand back the English print's price.
+        return {"found": False, "price": None, "url": None}
     return {"found": True, "price": 45.00, "url": "https://tcg.com/fake"}
 
 
@@ -50,6 +62,9 @@ def fake_pc(query, grading_company="", grade_value="", **kwargs):
         return {"found": False, "price": None, "url": None,
                 "grade_label": "Ungraded",
                 "reason": "PriceCharting: no confident match"}
+    if "(JP)" in query:
+        return {"found": True, "price": 900.00, "url": "https://pc.com/fake-jp",
+                "grade_label": "Ungraded", "reason": ""}
     return {"found": True, "price": 280.00, "url": "https://pc.com/fake",
             "grade_label": "Ungraded", "reason": ""}
 
@@ -97,6 +112,16 @@ assert results[5].price_source_used == "Collectr Price (Graded)"
 
 # 7. Graded, no Collectr price → Not Found
 assert results[6].price_source_used == "Not Found"
+
+# 8. Raw JP ≤$500, no Japan-signal match → Collectr fallback, not TCGPlayer
+assert results[7].is_japanese is True
+assert results[7].tcgplayer_price is None
+assert results[7].price_source_used == "Collectr Price (fallback)"
+
+# 9. Raw JP >$500 → PriceCharting queried with "(JP)" appended
+assert results[8].is_japanese is True
+assert results[8].pricecharting_price == 900.0
+assert results[8].price_source_used == "PriceCharting (high value)"
 
 print("\nAll business-rule assertions passed ✓")
 filepath = write_cards_to_excel(results, filename="offline_test_results.xlsx")

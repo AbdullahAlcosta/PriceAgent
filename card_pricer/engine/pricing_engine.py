@@ -92,7 +92,13 @@ def _pc_query(card: Card) -> str:
     set_clean  = _clean_name_for_search(card.set_name)
     # Remove set suffixes that PriceCharting doesn't use
     set_clean  = re.sub(r'\s*:.*$', '', set_clean).strip()  # e.g. "Crown Zenith: Galarian Gallery" → "Crown Zenith"
-    return " ".join(p for p in [name_clean, set_clean] if p).strip()
+    query = " ".join(p for p in [name_clean, set_clean] if p).strip()
+    # _clean_name_for_search strips the "JP" language tag along with other
+    # noise tags — re-append it so PriceCharting searches the Japanese print
+    # instead of silently matching the English one.
+    if card.is_japanese:
+        query = f"{query} (JP)".strip()
+    return query
 
 
 def _run_pricecharting(card: Card, grading_company: str = "",
@@ -188,6 +194,7 @@ def price_raw_sealed_card(card: Card) -> Card:
             card_name=card.name,
             set_name=card.set_name,
             card_number=card.number,
+            is_japanese=card.is_japanese,
         )
     except Exception as e:
         tcg = {"found": False, "price": None, "url": None}
