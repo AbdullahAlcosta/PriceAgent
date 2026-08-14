@@ -164,20 +164,29 @@ def price_raw_sealed_card(card: Card) -> Card:
     """
     Raw/sealed cards:
       Collectr price > $500 → PriceCharting (ungraded) only, skip TCGPlayer
-      Collectr price ≤ $500 → TCGPlayer primary, Collectr fallback
+      Japanese card (any value) → PriceCharting (ungraded) only, skip TCGPlayer
+      Otherwise → TCGPlayer primary, Collectr fallback
     """
     collectr_is_high = bool(
         card.collectr_price and card.collectr_price > HIGH_VALUE_THRESHOLD
     )
 
-    # ── High value: PriceCharting only ────────────────────────────────────────
-    if collectr_is_high:
-        log(f"  → Collectr price ${card.collectr_price:.2f} > "
-            f"${HIGH_VALUE_THRESHOLD} — using PriceCharting (ungraded), skipping TCGPlayer")
+    # ── High value or Japanese: PriceCharting only ────────────────────────────
+    # Japanese cards route here regardless of price: PriceCharting searches
+    # the Japanese print directly via the "(JP)" query suffix (_pc_query),
+    # while TCGPlayer's Japanese-listing coverage is unverified — better to
+    # not risk silently matching the English print's price.
+    if collectr_is_high or card.is_japanese:
+        if collectr_is_high:
+            log(f"  → Collectr price ${card.collectr_price:.2f} > "
+                f"${HIGH_VALUE_THRESHOLD} — using PriceCharting (ungraded), skipping TCGPlayer")
+        else:
+            log("  → Japanese card — using PriceCharting (ungraded), skipping TCGPlayer")
         pc = _run_pricecharting(card, grading_company="", grade_value="")
         _apply_pc(card, pc)
         if pc["found"]:
-            card.price_source_used = "PriceCharting (high value)"
+            card.price_source_used = ("PriceCharting (high value)" if collectr_is_high
+                                       else "PriceCharting (Japanese)")
         else:
             if card.collectr_price:
                 card.price_source_used = "Collectr Price (fallback)"
@@ -186,7 +195,7 @@ def price_raw_sealed_card(card: Card) -> Card:
                 card.price_source_used = "Not Found"
         return card
 
-    # ── Normal value: TCGPlayer ───────────────────────────────────────────────
+    # ── Normal value, non-Japanese: TCGPlayer ─────────────────────────────────
     tcg_query = _tcg_query(card)
     try:
         tcg = search_tcgplayer(
@@ -194,7 +203,6 @@ def price_raw_sealed_card(card: Card) -> Card:
             card_name=card.name,
             set_name=card.set_name,
             card_number=card.number,
-            is_japanese=card.is_japanese,
         )
     except Exception as e:
         tcg = {"found": False, "price": None, "url": None}

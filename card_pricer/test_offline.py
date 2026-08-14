@@ -9,8 +9,8 @@ Rules:
   5. Graded, Collectr ≤ $500            → Collectr price only
   6. Graded, PC miss (>$500)             → Collectr price only (PC note added)
   7. Graded, no Collectr price           → Not Found
-  8. Raw JP, ≤ $500, no Japan-signal match → Collectr fallback (never the
-     English print's price)
+  8. Raw JP, ≤ $500                      → PriceCharting queried with "(JP)",
+     TCGPlayer skipped entirely (never the English print's price)
   9. Raw JP, > $500                      → PriceCharting queried with "(JP)"
 """
 
@@ -44,16 +44,11 @@ test_cards = [
 ]
 
 
-def fake_tcg(query, card_name="", set_name="", card_number="", is_japanese=False):
+def fake_tcg(query, card_name="", set_name="", card_number=""):
     if "Pikachu" in query:
         return {"found": False, "price": None, "url": None}
     if "Base Set" in query and "Charizard" in query:
         return {"found": True, "price": 750.00, "url": "https://tcg.com/fake"}
-    if is_japanese:
-        # Simulates tcgplayer.py rejecting a match with no Japan signal —
-        # this is the scenario the JP fix exists for: TCGPlayer must not
-        # silently hand back the English print's price.
-        return {"found": False, "price": None, "url": None}
     return {"found": True, "price": 45.00, "url": "https://tcg.com/fake"}
 
 
@@ -113,10 +108,11 @@ assert results[5].price_source_used == "Collectr Price (Graded)"
 # 7. Graded, no Collectr price → Not Found
 assert results[6].price_source_used == "Not Found"
 
-# 8. Raw JP ≤$500, no Japan-signal match → Collectr fallback, not TCGPlayer
+# 8. Raw JP ≤$500 → PriceCharting (JP query), TCGPlayer never called
 assert results[7].is_japanese is True
 assert results[7].tcgplayer_price is None
-assert results[7].price_source_used == "Collectr Price (fallback)"
+assert results[7].pricecharting_price == 900.0
+assert results[7].price_source_used == "PriceCharting (Japanese)"
 
 # 9. Raw JP >$500 → PriceCharting queried with "(JP)" appended
 assert results[8].is_japanese is True
