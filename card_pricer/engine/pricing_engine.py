@@ -56,6 +56,9 @@ def _clean_name_for_search(name: str) -> str:
     cleaned = _STRIP_RE.sub(' ', cleaned)
     # Replace dots used as name separators (D.Ace, D.Luffy etc.)
     cleaned = re.sub(r'\.', ' ', cleaned)
+    # A tag stripped out of e.g. "Card (JP)" leaves empty parens behind
+    # ("Card ( )") -- remove those before collapsing whitespace.
+    cleaned = re.sub(r'\(\s*\)', ' ', cleaned)
     # Collapse multiple spaces
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned
