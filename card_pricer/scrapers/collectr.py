@@ -50,6 +50,17 @@ def _make_collectr_url(product_id, product_name: str) -> str:
     return f"https://app.getcollectr.com/explore/product/{product_id}/{slug}"
 
 
+def _extract_handle(profile_url: str) -> str | None:
+    """
+    Pull the @handle out of a showcase profile URL, e.g.
+    'https://app.getcollectr.com/showcase/profile/@pidduda' -> '@pidduda'.
+    Used as a last-resort fallback to construct the API URL ourselves when
+    no request to the pagination endpoint was ever captured at all.
+    """
+    match = re.search(r"/(@[\w.\-]+)(?:[/?]|$)", profile_url)
+    return match.group(1) if match else None
+
+
 def _get_collection_id(profile_url: str) -> str | None:
     """
     Extract collection UUID from the page URL if present.
@@ -78,6 +89,17 @@ def scrape_collectr_showcase(profile_url: str) -> list[Card]:
     last_page_done = threading.Event()
     new_data_event = threading.Event()
 
+    # Collectr's showcase page appears to render the FIRST page of cards
+    # (offset=0) from data embedded in the initial page load rather than a
+    # separate XHR to the pagination endpoint below — so page.on("response")
+    # never sees it, and every scrape silently drops the first ~30 cards
+    # (or returns zero for collections small enough to fit entirely on that
+    # first page, since no "load more" scroll call ever fires). We track
+    # which offsets we've actually captured so we can backfill offset=0
+    # directly after the scroll loop if it never showed up.
+    captured_offsets: set = set()
+    last_seen_url = {"url": None}
+
     def handle_response(response):
         try:
             if API_BASE not in response.url:
@@ -89,6 +111,11 @@ def scrape_collectr_showcase(profile_url: str) -> list[Card]:
             # The page fires both; we only want the one with id=UUID.
             if collection_id and f"id={collection_id}" not in response.url:
                 return
+
+            last_seen_url["url"] = response.url
+            offset_match = re.search(r"[?&]offset=(\d+)", response.url)
+            if offset_match:
+                captured_offsets.add(int(offset_match.group(1)))
 
             body = response.text()
             data = json.loads(body)
@@ -125,8 +152,18 @@ def scrape_collectr_showcase(profile_url: str) -> list[Card]:
                 log(f"Collectr: last page received ({len(products)} items).")
                 last_page_done.set()
 
-        except Exception:
-            pass
+        except Exception as e:
+            log(f"Collectr response handling error: {e} (url={response.url[:150]})",
+                level="WARN")
+
+    def _backfill_products(data: dict) -> list:
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("products", "data", "items", "cards", "results"):
+                if key in data and isinstance(data[key], list):
+                    return data[key]
+        return []
 
     # ── Browser session ────────────────────────────────────────────────────────
     with sync_playwright() as p:
@@ -210,7 +247,82 @@ def scrape_collectr_showcase(profile_url: str) -> list[Card]:
 
             new_data_event.wait(timeout=NEW_DATA_TIMEOUT)
 
-        log(f"Scroll complete. Total: {len(all_products)} cards.")
+        log(f"Scroll complete. Total: {len(all_products)} cards "
+            f"(before offset=0 backfill check).")
+
+        # ── Backfill the first page ──────────────────────────────────────────
+        # See the comment above handle_response: offset=0 is never observed
+        # as a network response (it's rendered from the initial page load),
+        # so every scrape is missing it unless we go fetch it ourselves.
+        if 0 not in captured_offsets:
+            if last_seen_url["url"]:
+                backfill_url = re.sub(r"([?&]offset=)\d+", r"\g<1>0", last_seen_url["url"])
+                log(f"offset=0 was never captured — backfilling it directly: {backfill_url[:150]}",
+                    level="WARN")
+                try:
+                    resp = context.request.get(backfill_url)
+                    if resp.ok:
+                        data = json.loads(resp.text())
+                        products = _backfill_products(data)
+                        new_count = 0
+                        with lock:
+                            for p in products:
+                                pid = str(p.get("product_id") or p.get("id") or "")
+                                dedup_key = pid if pid else p.get("product_name", "")
+                                if dedup_key and dedup_key not in seen_ids:
+                                    seen_ids.add(dedup_key)
+                                    all_products.append(p)
+                                    new_count += 1
+                        log(f"Backfill: +{new_count} cards from offset=0 "
+                            f"(total: {len(all_products)}).")
+                    else:
+                        log(f"Backfill request failed: HTTP {resp.status}", level="WARN")
+                except Exception as e:
+                    log(f"Backfill request error: {e}", level="WARN")
+            else:
+                # No response was ever captured to build a URL template from —
+                # likely a collection small enough (≤30 cards) that the page
+                # never needed a "load more" scroll call at all. Fall back to
+                # constructing the endpoint directly from the profile handle
+                # (confirmed format: /data/showcase/@handle?offset=0&limit=30).
+                handle = _extract_handle(profile_url)
+                if handle:
+                    fallback_url = (
+                        f"https://{API_BASE}{handle}"
+                        f"?offset=0&limit={PAGE_SIZE}&filters=&unstackedView=true"
+                    )
+                    if collection_id:
+                        fallback_url += f"&id={collection_id}"
+                    log("No Collectr API response was ever captured — trying a "
+                        f"constructed request as a last resort: {fallback_url}",
+                        level="WARN")
+                    try:
+                        resp = context.request.get(fallback_url)
+                        if resp.ok:
+                            data = json.loads(resp.text())
+                            products = _backfill_products(data)
+                            new_count = 0
+                            with lock:
+                                for p in products:
+                                    pid = str(p.get("product_id") or p.get("id") or "")
+                                    dedup_key = pid if pid else p.get("product_name", "")
+                                    if dedup_key and dedup_key not in seen_ids:
+                                        seen_ids.add(dedup_key)
+                                        all_products.append(p)
+                                        new_count += 1
+                            log(f"Constructed-request backfill: +{new_count} cards "
+                                f"(total: {len(all_products)}).")
+                        else:
+                            log(f"Constructed-request backfill failed: HTTP {resp.status} "
+                                "— this collection may genuinely be empty or private.",
+                                level="WARN")
+                    except Exception as e:
+                        log(f"Constructed-request backfill error: {e}", level="WARN")
+                else:
+                    log("No Collectr API response was ever captured and no handle "
+                        "could be parsed from the URL — cannot backfill.", level="WARN")
+
+        log(f"Total after backfill check: {len(all_products)} cards.")
         browser.close()
 
     if not all_products:
