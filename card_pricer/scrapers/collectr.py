@@ -165,6 +165,47 @@ def scrape_collectr_showcase(profile_url: str) -> list[Card]:
                     return data[key]
         return []
 
+    def _fetch_via_page(page, url: str):
+        """
+        Issue a GET for `url` from INSIDE the browser tab's own JS context,
+        rather than Playwright's separate APIRequestContext. A plain
+        out-of-band request only inherits cookies -- it does not replicate
+        an Authorization/bearer token or other auth header the app's own
+        fetch() wrapper attaches from JS-managed state (localStorage,
+        an axios interceptor, etc.), which is why the first backfill
+        attempt got HTTP 403 even though the same URL shape works for the
+        browser itself. Running fetch() from page.evaluate() uses the
+        exact same request pipeline the app uses, auth included.
+        Returns (parsed_json_or_None, error_message_or_None).
+        """
+        try:
+            result = page.evaluate(
+                """
+                async (u) => {
+                    try {
+                        const resp = await fetch(u, { credentials: 'include' });
+                        const text = await resp.text();
+                        return { ok: resp.ok, status: resp.status, text };
+                    } catch (e) {
+                        return { ok: false, status: 0, text: String(e) };
+                    }
+                }
+                """,
+                url,
+            )
+        except Exception as e:
+            return None, f"page.evaluate error: {e}"
+
+        if not result or not result.get("ok"):
+            status = result.get("status") if result else "?"
+            snippet = (result.get("text") or "")[:200] if result else ""
+            return None, f"HTTP {status} ({snippet})"
+
+        try:
+            return json.loads(result["text"]), None
+        except Exception as e:
+            return None, f"JSON parse error: {e}"
+
     # ── Browser session ────────────────────────────────────────────────────────
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -259,26 +300,22 @@ def scrape_collectr_showcase(profile_url: str) -> list[Card]:
                 backfill_url = re.sub(r"([?&]offset=)\d+", r"\g<1>0", last_seen_url["url"])
                 log(f"offset=0 was never captured — backfilling it directly: {backfill_url[:150]}",
                     level="WARN")
-                try:
-                    resp = context.request.get(backfill_url)
-                    if resp.ok:
-                        data = json.loads(resp.text())
-                        products = _backfill_products(data)
-                        new_count = 0
-                        with lock:
-                            for p in products:
-                                pid = str(p.get("product_id") or p.get("id") or "")
-                                dedup_key = pid if pid else p.get("product_name", "")
-                                if dedup_key and dedup_key not in seen_ids:
-                                    seen_ids.add(dedup_key)
-                                    all_products.append(p)
-                                    new_count += 1
-                        log(f"Backfill: +{new_count} cards from offset=0 "
-                            f"(total: {len(all_products)}).")
-                    else:
-                        log(f"Backfill request failed: HTTP {resp.status}", level="WARN")
-                except Exception as e:
-                    log(f"Backfill request error: {e}", level="WARN")
+                data, err = _fetch_via_page(page, backfill_url)
+                if data is not None:
+                    products = _backfill_products(data)
+                    new_count = 0
+                    with lock:
+                        for p in products:
+                            pid = str(p.get("product_id") or p.get("id") or "")
+                            dedup_key = pid if pid else p.get("product_name", "")
+                            if dedup_key and dedup_key not in seen_ids:
+                                seen_ids.add(dedup_key)
+                                all_products.append(p)
+                                new_count += 1
+                    log(f"Backfill: +{new_count} cards from offset=0 "
+                        f"(total: {len(all_products)}).")
+                else:
+                    log(f"Backfill request failed: {err}", level="WARN")
             else:
                 # No response was ever captured to build a URL template from —
                 # likely a collection small enough (≤30 cards) that the page
@@ -296,28 +333,24 @@ def scrape_collectr_showcase(profile_url: str) -> list[Card]:
                     log("No Collectr API response was ever captured — trying a "
                         f"constructed request as a last resort: {fallback_url}",
                         level="WARN")
-                    try:
-                        resp = context.request.get(fallback_url)
-                        if resp.ok:
-                            data = json.loads(resp.text())
-                            products = _backfill_products(data)
-                            new_count = 0
-                            with lock:
-                                for p in products:
-                                    pid = str(p.get("product_id") or p.get("id") or "")
-                                    dedup_key = pid if pid else p.get("product_name", "")
-                                    if dedup_key and dedup_key not in seen_ids:
-                                        seen_ids.add(dedup_key)
-                                        all_products.append(p)
-                                        new_count += 1
-                            log(f"Constructed-request backfill: +{new_count} cards "
-                                f"(total: {len(all_products)}).")
-                        else:
-                            log(f"Constructed-request backfill failed: HTTP {resp.status} "
-                                "— this collection may genuinely be empty or private.",
-                                level="WARN")
-                    except Exception as e:
-                        log(f"Constructed-request backfill error: {e}", level="WARN")
+                    data, err = _fetch_via_page(page, fallback_url)
+                    if data is not None:
+                        products = _backfill_products(data)
+                        new_count = 0
+                        with lock:
+                            for p in products:
+                                pid = str(p.get("product_id") or p.get("id") or "")
+                                dedup_key = pid if pid else p.get("product_name", "")
+                                if dedup_key and dedup_key not in seen_ids:
+                                    seen_ids.add(dedup_key)
+                                    all_products.append(p)
+                                    new_count += 1
+                        log(f"Constructed-request backfill: +{new_count} cards "
+                            f"(total: {len(all_products)}).")
+                    else:
+                        log(f"Constructed-request backfill failed: {err} "
+                            "— this collection may genuinely be empty or private.",
+                            level="WARN")
                 else:
                     log("No Collectr API response was ever captured and no handle "
                         "could be parsed from the URL — cannot backfill.", level="WARN")
