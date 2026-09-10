@@ -39,4 +39,4 @@ if not exist "%SETUP_MARKER%" (
     call "%VENV_DIR%\Scripts\activate.bat"
 )
 
-python launcher.py
+python gui.py

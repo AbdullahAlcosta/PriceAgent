@@ -36,4 +36,4 @@ else
     source "$VENV_DIR/bin/activate"
 fi
 
-python launcher.py
+python gui.py

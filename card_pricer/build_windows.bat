@@ -81,11 +81,12 @@ echo [4/5] Building the .exe with PyInstaller...
 if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
 
-pyinstaller --noconfirm --onedir --console ^
+pyinstaller --noconfirm --onedir --windowed ^
     --name CardPricingAgent ^
     --add-data "%PW_BROWSERS_DIR%;ms-playwright" ^
     --hidden-import=playwright.sync_api ^
-    launcher.py
+    --hidden-import=tkinter ^
+    gui.py
 
 if errorlevel 1 (
     echo.

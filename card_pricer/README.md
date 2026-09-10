@@ -24,12 +24,25 @@ playwright install chromium     # downloads the headless browser Playwright driv
 
 ## Run it
 
+**GUI (recommended)** — a window that stays open so you can price multiple
+collections back-to-back without restarting:
+
+```bash
+python gui.py
+```
+
+Paste a Collectr showcase URL, click Run, and paste another one whenever
+that run finishes — no need to relaunch between collections.
+
+**Command line** (for scripting/automation):
+
 ```bash
 python main.py "https://app.getcollectr.com/showcase/profile/@asos4"
 ```
 
 Results land in `results/card_pricing_results_<timestamp>.xlsx`.
-A full log of every step, warning, and error is written to `results/run_log.txt`.
+A full log of every step, warning, and error is written to `results/run_log.txt`
+(and mirrored live into the GUI's log panel when using `gui.py`).
 
 ## How it follows your business rules
 
@@ -66,7 +79,9 @@ to `pricing_engine.py`.
 
 ```
 card_pricer/
-├── main.py                    entry point
+├── gui.py                     desktop GUI entry point (recommended)
+├── launcher.py                console entry point (legacy, single run)
+├── main.py                    CLI entry point (scripting/automation)
 ├── config.py                  thresholds, timeouts, headless toggle
 ├── logger.py                  shared logging
 ├── engine/

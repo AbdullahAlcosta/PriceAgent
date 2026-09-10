@@ -25,10 +25,11 @@ it — no Python install, no `pip install`, no separate browser download.
      usual hidden system cache) so it can be bundled
    - Run PyInstaller to produce `dist/CardPricingAgent/`
 3. Test it: go into `dist/CardPricingAgent/` and double-click
-   `CardPricingAgent.exe` directly — confirm it prompts for a URL and runs
-   end to end, on a machine that does NOT have Python installed if you can
-   (a clean VM is the real test — your dev machine having Python already
-   installed can mask problems).
+   `CardPricingAgent.exe` directly — confirm the window opens, accepts a
+   URL, runs end to end, and stays open afterward ready for another URL, on
+   a machine that does NOT have Python installed if you can (a clean VM is
+   the real test — your dev machine having Python already installed can
+   mask problems).
 4. Zip the entire `dist/CardPricingAgent/` folder (not just the .exe --
    PyInstaller's `--onedir` build needs the supporting files alongside it)
    and send that zip to your client. That's the whole deliverable.
@@ -45,10 +46,13 @@ it — no Python install, no `pip install`, no separate browser download.
   `--add-data` at the OS's default cache location -- those two locations
   don't match, which silently produced an empty `dist\` folder. Fixed now
   by using one explicit path for both steps.)
-- `launcher.py` checks `sys.frozen` (a flag PyInstaller sets at runtime) and,
-  if true, points `PLAYWRIGHT_BROWSERS_PATH` at the bundled browser folder
-  inside the extracted package -- so the compiled .exe never tries to reach
-  the internet for a browser, it already has one.
+- `gui.py` (the build target — see `--windowed ... gui.py` in
+  `build_windows.bat`) checks `sys.frozen` (a flag PyInstaller sets at
+  runtime) and, if true, points `PLAYWRIGHT_BROWSERS_PATH` at the bundled
+  browser folder inside the extracted package -- so the compiled .exe never
+  tries to reach the internet for a browser, it already has one.
+  `launcher.py` (the older console-only entry point) does the same check,
+  and still works if you build it directly, but `gui.py` is what ships.
 - `config.py` writes `results/` next to the actual `.exe` (via
   `sys.executable`) rather than next to the Python source, since in a
   frozen build the source lives in a temporary extraction folder that
