@@ -57,9 +57,10 @@ def main():
         input("\nPress Enter to exit...")
         return
 
+    import config
     print("\nWorking on it — this may take a while for large collections.")
-    print(f"Running {__import__('config').PARALLEL_WORKERS} parallel workers to speed things up.")
-    print("(Full details are being written to results/run_log.txt as it runs.)\n")
+    print(f"Running {config.PARALLEL_WORKERS} parallel workers to speed things up.")
+    print(f"(Full details are being written to {config.LOG_PATH} as it runs.)\n")
 
     cards = scrape_collectr_showcase(url)
     if not cards:
@@ -84,6 +85,7 @@ if __name__ == "__main__":
     except Exception as e:
         log(f"Unexpected error in launcher: {e}", level="ERROR")
         print(f"\nSomething went wrong: {e}")
-        print("Check results/run_log.txt for details, or contact support.")
+        import config
+        print(f"Check {config.LOG_PATH} for details, or contact support.")
         input("\nPress Enter to close...")
         sys.exit(1)

@@ -53,10 +53,15 @@ it — no Python install, no `pip install`, no separate browser download.
   tries to reach the internet for a browser, it already has one.
   `launcher.py` (the older console-only entry point) does the same check,
   and still works if you build it directly, but `gui.py` is what ships.
-- `config.py` writes `results/` next to the actual `.exe` (via
-  `sys.executable`) rather than next to the Python source, since in a
-  frozen build the source lives in a temporary extraction folder that
-  doesn't persist.
+- `config.py` writes results and the run log to `Documents/CardPricingAgent
+  Results/` (falls back to the home directory if there's no Documents
+  folder) -- deliberately NOT next to the `.exe` or anywhere under `dist/`.
+  This used to write to `results/` next to `sys.executable`, but that meant
+  every past result and the run log got silently deleted by this very
+  script's `rmdir /s /q dist` step on the next rebuild -- which is exactly
+  what happened to a client's "missing" run log. Keeping output outside
+  the app folder means rebuilding, reinstalling, or re-unzipping a newer
+  version can never touch it.
 - The build script now checks the exit code after every step (pip install,
   playwright install, pyinstaller itself) and stops with a clear error
   message instead of silently continuing -- if `dist\CardPricingAgent\

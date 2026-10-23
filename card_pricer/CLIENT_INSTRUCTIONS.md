@@ -11,7 +11,7 @@ This is the simplest version — nothing to install.
 5. When it's done, an Excel file with all your prices opens automatically.
 6. **The window stays open** — to price another collection, just paste a new link and click **Run** again. No need to close and reopen the app between collections.
 
-Buttons at the bottom let you reopen the last result (**Open Last Result**) or jump to the folder with every past run's Excel file (**Open Results Folder**).
+Buttons at the bottom let you reopen the last result (**Open Last Result**) or jump to the folder with every past run's Excel file (**Open Results Folder**). That folder lives at **Documents\CardPricingAgent Results** on your computer — it's separate from wherever the app itself is unzipped, so it's never affected by reinstalling or updating the app.
 
 **Windows may show a blue "Windows protected your PC" warning the first time** — this happens for any new program that isn't from a large registered publisher, not because anything is wrong. Click **"More info"** → **"Run anyway"**. You'll only see this once.
 
@@ -53,4 +53,4 @@ That's it — no need to touch anything else. Every future run is just double-cl
 
 ## If something looks wrong
 
-Every run writes a log file at **`results/run_log.txt`** — it records every card it looked up and what happened. If a lot of cards say "Not Found" or the prices look off, send that log file along with your question and it can be diagnosed quickly.
+Every run writes a log file at **Documents\CardPricingAgent Results\run_log.txt** — it records every card it looked up and what happened. If a lot of cards say "Not Found" or the prices look off, send that log file along with your question and it can be diagnosed quickly. This file (and every past Excel result) lives in that Documents folder permanently — it's not deleted or replaced when you update to a newer version of the app.

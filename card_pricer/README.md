@@ -40,9 +40,13 @@ that run finishes — no need to relaunch between collections.
 python main.py "https://app.getcollectr.com/showcase/profile/@asos4"
 ```
 
-Results land in `results/card_pricing_results_<timestamp>.xlsx`.
-A full log of every step, warning, and error is written to `results/run_log.txt`
-(and mirrored live into the GUI's log panel when using `gui.py`).
+Results land in `<Documents>/CardPricingAgent Results/card_pricing_results_<timestamp>.xlsx`
+(falls back to the home directory if there's no Documents folder — see
+`config._default_output_dir()`). This is deliberately outside the app's own
+folder so it survives reinstalling/updating the app and isn't wiped by
+`build_windows.bat` re-deleting `dist/` on every rebuild. A full log of
+every step, warning, and error is written to `run_log.txt` in that same
+folder (and mirrored live into the GUI's log panel when using `gui.py`).
 
 ## How it follows your business rules
 
