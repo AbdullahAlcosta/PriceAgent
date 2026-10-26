@@ -24,6 +24,15 @@ HIGH_VALUE_THRESHOLD = 500.00
 # 5 workers = ~5x speed (~250MB RAM each = ~1.25GB total)
 PARALLEL_WORKERS = 5
 
+# Rough seconds for ONE worker to price ONE card (a serial TCGPlayer and/or
+# PriceCharting round-trip) -- used only to show an estimated completion
+# time in the GUI. Derived from a real run: 67 cards with 5 workers took
+# ~226s wall-clock, i.e. ~17s/card/worker. Actual time varies with network
+# conditions and card mix (high-value/graded/Japanese cards make extra
+# PriceCharting round-trips, raw misses that fall back to Collectr are
+# faster) -- treat the GUI's estimate as a rough guide, not a guarantee.
+AVG_SECONDS_PER_CARD_PER_WORKER = 17
+
 
 def _default_output_dir() -> str:
     """

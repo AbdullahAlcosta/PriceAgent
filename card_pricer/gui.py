@@ -13,6 +13,8 @@ import platform
 import subprocess
 import threading
 import queue
+import time
+import math
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -34,6 +36,18 @@ from scrapers.collectr import scrape_collectr_showcase
 from engine.pricing_engine import price_all_cards
 from output.excel_writer import write_cards_to_excel
 from logger import log, add_log_listener
+
+
+def _format_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    minutes, secs = divmod(seconds, 60)
+    return f"{minutes}:{secs:02d}"
+
+
+def _estimate_seconds(num_cards: int) -> int:
+    """Rough ETA for pricing num_cards -- see config.AVG_SECONDS_PER_CARD_PER_WORKER."""
+    batches = math.ceil(num_cards / config.PARALLEL_WORKERS)
+    return batches * config.AVG_SECONDS_PER_CARD_PER_WORKER
 
 
 def _open_path(path: str):
@@ -60,6 +74,9 @@ class CardPricingApp:
         self.msg_queue: "queue.Queue" = queue.Queue()
         self.is_running = False
         self.last_result_path: str | None = None
+        self.run_start_time: float | None = None
+        self.num_cards: int | None = None
+        self.eta_seconds: int | None = None
 
         self._build_widgets()
         add_log_listener(lambda line: self.msg_queue.put(("log", line)))
@@ -128,6 +145,8 @@ class CardPricingApp:
                 kind, payload = self.msg_queue.get_nowait()
                 if kind == "log":
                     self._append_log(payload)
+                elif kind == "scraped":
+                    self._on_scraped(payload)
                 elif kind == "done":
                     self._on_run_finished(payload)
                 elif kind == "error":
@@ -157,10 +176,13 @@ class CardPricingApp:
             return
 
         self.is_running = True
+        self.run_start_time = time.time()
+        self.num_cards = None
+        self.eta_seconds = None
         self.run_btn.configure(state="disabled", text="Working...")
         self.url_entry.configure(state="disabled")
         self.status_var.set(
-            "Scraping and pricing — this can take a while for large collections..."
+            "Scraping your collection — this can take a minute for large ones..."
         )
         self.progress.start(12)
 
@@ -176,6 +198,7 @@ class CardPricingApp:
                     "No cards were found at that URL. Double-check the link and try again.",
                 ))
                 return
+            self.msg_queue.put(("scraped", (len(cards), _estimate_seconds(len(cards)))))
             priced_cards = price_all_cards(cards)
             filepath = write_cards_to_excel(priced_cards)
             log(f"=== Done. {len(priced_cards)} cards processed. Results: {filepath} ===")
@@ -183,6 +206,25 @@ class CardPricingApp:
         except Exception as e:
             log(f"Unexpected error: {e}", level="ERROR")
             self.msg_queue.put(("error", str(e)))
+
+    def _on_scraped(self, payload):
+        num_cards, eta_seconds = payload
+        self.num_cards = num_cards
+        self.eta_seconds = eta_seconds
+        self.status_var.set(
+            f"Pricing {num_cards} cards — estimated time: ~{_format_duration(eta_seconds)}"
+        )
+        self._tick_elapsed()
+
+    def _tick_elapsed(self):
+        if not self.is_running or self.num_cards is None or self.run_start_time is None:
+            return
+        elapsed = time.time() - self.run_start_time
+        self.status_var.set(
+            f"Pricing {self.num_cards} cards — elapsed {_format_duration(elapsed)}, "
+            f"estimated total ~{_format_duration(self.eta_seconds)}"
+        )
+        self.root.after(1000, self._tick_elapsed)
 
     def _on_run_finished(self, payload):
         filepath, count = payload
@@ -192,11 +234,17 @@ class CardPricingApp:
         self.run_btn.configure(state="normal", text="Run")
         self.url_entry.configure(state="normal")
         self.open_file_btn.configure(state="normal")
-        self.status_var.set(f"Done — priced {count} cards. Ready for another URL.")
+        elapsed_str = (
+            _format_duration(time.time() - self.run_start_time)
+            if self.run_start_time else "?"
+        )
+        self.status_var.set(
+            f"Done — priced {count} cards in {elapsed_str}. Ready for another URL."
+        )
         _open_path(filepath)
         messagebox.showinfo(
             "Done",
-            f"Priced {count} cards.\n\nResults saved to:\n{filepath}\n\n"
+            f"Priced {count} cards in {elapsed_str}.\n\nResults saved to:\n{filepath}\n\n"
             "You can paste another Collectr URL above to run again.",
         )
 
