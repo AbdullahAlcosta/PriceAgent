@@ -10,7 +10,7 @@ from pathlib import Path
 # Bump this on every release handed to the client. Shown in the GUI title
 # bar and logged at startup, so a stale build is immediately obvious from a
 # screenshot or a log file alone instead of having to infer it from behavior.
-APP_VERSION = "6"
+APP_VERSION = "7"
 
 # Browser behavior
 HEADLESS = True
