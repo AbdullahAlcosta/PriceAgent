@@ -7,11 +7,10 @@ import sys
 import os
 from pathlib import Path
 
-# Bump this on every release handed to the client, and add an entry to
-# RELEASE_NOTES.md. Shown in the GUI title bar and logged at startup, so a
-# stale build is immediately obvious from a screenshot or a log file alone
-# instead of having to infer it from behavior (see RELEASE_NOTES.md v1.2.0).
-APP_VERSION = "1.2.0"
+# Bump this on every release handed to the client. Shown in the GUI title
+# bar and logged at startup, so a stale build is immediately obvious from a
+# screenshot or a log file alone instead of having to infer it from behavior.
+APP_VERSION = "5"
 
 # Browser behavior
 HEADLESS = True
