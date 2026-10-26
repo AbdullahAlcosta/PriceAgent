@@ -5,6 +5,13 @@ This is the day-to-day app the client runs (via run.command / run.bat, or
 the bundled CardPricingAgent.exe). Unlike the old command-line launcher,
 this window stays open after a run finishes: paste another Collectr URL
 and click Run again to price another collection in the same session.
+
+Built on CustomTkinter (a thin layer over Tkinter) for a modern look --
+rounded widgets, a proper color palette, light/dark mode -- without the
+bundle-size or complexity cost of a web-based UI. Dialogs (messagebox)
+stay as plain Tkinter, which is a deliberate, low-risk choice: CustomTkinter
+has no dialog widgets of its own, and the OS-native alert look is a minor
+and expected inconsistency next to the custom main window.
 """
 
 import os
@@ -16,7 +23,8 @@ import queue
 import time
 import math
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
+import customtkinter as ctk
 
 # --- Bundled-exe support -----------------------------------------------
 # When this script has been packaged into a Windows .exe with PyInstaller
@@ -36,6 +44,16 @@ from scrapers.collectr import scrape_collectr_showcase
 from engine.pricing_engine import price_all_cards
 from output.excel_writer import write_cards_to_excel
 from logger import log, add_log_listener
+
+# Theme-aware (light_mode, dark_mode) colors for the status line.
+COLOR_WORKING = ("#1F6FB2", "#5AA9E6")
+COLOR_DONE = ("#1F7A4D", "#4CC38A")
+COLOR_ERROR = ("#B3261E", "#FF6B6B")
+COLOR_IDLE = ("gray10", "gray90")
+
+PROGRESS_STEP = 0.025  # per animation tick -- full sweep takes ~1.6s either way
+PULSE_INTERVAL_MS = 450
+TICK_INTERVAL_MS = 1000
 
 
 def _format_duration(seconds: float) -> str:
@@ -65,7 +83,7 @@ def _open_path(path: str):
 
 
 class CardPricingApp:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: "ctk.CTk"):
         self.root = root
         root.title(f"Card Pricing Agent v{config.APP_VERSION}")
         root.geometry("780x560")
@@ -78,6 +96,15 @@ class CardPricingApp:
         self.num_cards: int | None = None
         self.eta_seconds: int | None = None
 
+        # "idle" | "scraping" | "pricing" -- gates which animation loop is
+        # allowed to keep rescheduling itself, so the pulsing-dots loop and
+        # the elapsed-time ticker never fight over the status text.
+        self._phase = "idle"
+        self._progress_value = 0.0
+        self._progress_direction = 1
+        self._pulse_base = ""
+        self._pulse_dots = 0
+
         self._build_widgets()
         add_log_listener(lambda line: self.msg_queue.put(("log", line)))
         self.root.after(150, self._poll_queue)
@@ -86,56 +113,72 @@ class CardPricingApp:
 
     # ------------------------------------------------------------------ UI
     def _build_widgets(self):
-        pad = {"padx": 10, "pady": 6}
+        pad = {"padx": 14, "pady": 8}
 
-        top = ttk.Frame(self.root)
+        top = ctk.CTkFrame(self.root, fg_color="transparent")
         top.pack(fill="x", **pad)
 
-        ttk.Label(top, text="Collectr showcase URL:").pack(anchor="w")
-        url_row = ttk.Frame(top)
-        url_row.pack(fill="x", pady=(4, 0))
+        ctk.CTkLabel(
+            top, text="Collectr showcase URL",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(anchor="w")
+        url_row = ctk.CTkFrame(top, fg_color="transparent")
+        url_row.pack(fill="x", pady=(6, 0))
         self.url_var = tk.StringVar()
-        self.url_entry = ttk.Entry(url_row, textvariable=self.url_var)
+        self.url_entry = ctk.CTkEntry(
+            url_row, textvariable=self.url_var,
+            placeholder_text="https://app.getcollectr.com/showcase/profile/@you",
+            height=36,
+        )
         self.url_entry.pack(side="left", fill="x", expand=True)
         self.url_entry.bind("<Return>", lambda _e: self._start_run())
-        self.run_btn = ttk.Button(url_row, text="Run", command=self._start_run)
+        self.run_btn = ctk.CTkButton(
+            url_row, text="Run", command=self._start_run,
+            width=90, height=36, corner_radius=8,
+        )
         self.run_btn.pack(side="left", padx=(8, 0))
 
         self.status_var = tk.StringVar(
             value="Ready. Paste a Collectr showcase URL above and click Run."
         )
-        ttk.Label(self.root, textvariable=self.status_var, foreground="#1F4E79").pack(
-            anchor="w", padx=10
+        self.status_label = ctk.CTkLabel(
+            self.root, textvariable=self.status_var, text_color=COLOR_IDLE,
+            anchor="w", font=ctk.CTkFont(size=12),
         )
+        self.status_label.pack(fill="x", padx=14)
 
-        self.progress = ttk.Progressbar(self.root, mode="indeterminate")
-        self.progress.pack(fill="x", padx=10, pady=(0, 6))
+        self.progress = ctk.CTkProgressBar(self.root, height=8, corner_radius=4)
+        self.progress.set(0)
+        self.progress.pack(fill="x", padx=14, pady=(6, 8))
 
-        log_frame = ttk.Frame(self.root)
-        log_frame.pack(fill="both", expand=True, padx=10, pady=(0, 6))
-        self.log_box = tk.Text(
+        log_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+        log_frame.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+        self.log_box = ctk.CTkTextbox(
             log_frame, wrap="word", state="disabled",
-            bg="#0f1117", fg="#d6d6d6", insertbackground="#d6d6d6",
-            font=("Consolas", 9), height=10,
+            fg_color="#0f1117", text_color="#d6d6d6",
+            font=ctk.CTkFont(family="Consolas", size=12),
+            corner_radius=8,
         )
-        scroll = ttk.Scrollbar(log_frame, command=self.log_box.yview)
-        self.log_box.configure(yscrollcommand=scroll.set)
-        self.log_box.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
+        self.log_box.pack(fill="both", expand=True)
 
-        bottom = ttk.Frame(self.root)
-        bottom.pack(fill="x", padx=10, pady=(0, 10))
-        self.open_file_btn = ttk.Button(
+        bottom = ctk.CTkFrame(self.root, fg_color="transparent")
+        bottom.pack(fill="x", padx=14, pady=(0, 14))
+        self.open_file_btn = ctk.CTkButton(
             bottom, text="Open Last Result", command=self._open_last_result,
-            state="disabled",
+            state="disabled", fg_color="transparent", border_width=1,
+            text_color=COLOR_IDLE,
         )
         self.open_file_btn.pack(side="left")
-        ttk.Button(
-            bottom, text="Open Results Folder", command=self._open_results_folder
+        ctk.CTkButton(
+            bottom, text="Open Results Folder", command=self._open_results_folder,
+            fg_color="transparent", border_width=1, text_color=COLOR_IDLE,
         ).pack(side="left", padx=(8, 0))
-        ttk.Button(bottom, text="Clear Log", command=self._clear_log).pack(side="right")
-        ttk.Label(
-            bottom, text=f"v{config.APP_VERSION}", foreground="#888888"
+        ctk.CTkButton(
+            bottom, text="Clear Log", command=self._clear_log,
+            fg_color="transparent", border_width=1, text_color=COLOR_IDLE,
+        ).pack(side="right")
+        ctk.CTkLabel(
+            bottom, text=f"v{config.APP_VERSION}", text_color=("gray60", "gray50"),
         ).pack(side="right", padx=(0, 10))
 
     # -------------------------------------------------------- log plumbing
@@ -166,6 +209,38 @@ class CardPricingApp:
         self.log_box.delete("1.0", "end")
         self.log_box.configure(state="disabled")
 
+    # ----------------------------------------------------------- animation
+    def _animate_progress(self):
+        if self._phase == "idle":
+            self.progress.set(0)
+            return
+        self._progress_value += self._progress_direction * PROGRESS_STEP
+        if self._progress_value >= 1.0:
+            self._progress_value = 1.0
+            self._progress_direction = -1
+        elif self._progress_value <= 0.0:
+            self._progress_value = 0.0
+            self._progress_direction = 1
+        self.progress.set(self._progress_value)
+        self.root.after(30, self._animate_progress)
+
+    def _pulse_tick(self):
+        if self._phase != "scraping":
+            return
+        self._pulse_dots = (self._pulse_dots + 1) % 4
+        self.status_var.set(self._pulse_base + "." * self._pulse_dots)
+        self.root.after(PULSE_INTERVAL_MS, self._pulse_tick)
+
+    def _tick_elapsed(self):
+        if self._phase != "pricing":
+            return
+        elapsed = time.time() - self.run_start_time
+        self.status_var.set(
+            f"Pricing {self.num_cards} cards — elapsed {_format_duration(elapsed)}, "
+            f"estimated total ~{_format_duration(self.eta_seconds)}"
+        )
+        self.root.after(TICK_INTERVAL_MS, self._tick_elapsed)
+
     # ------------------------------------------------------- run lifecycle
     def _start_run(self):
         if self.is_running:
@@ -181,10 +256,17 @@ class CardPricingApp:
         self.eta_seconds = None
         self.run_btn.configure(state="disabled", text="Working...")
         self.url_entry.configure(state="disabled")
-        self.status_var.set(
-            "Scraping your collection — this can take a minute for large ones..."
-        )
-        self.progress.start(12)
+        self.status_label.configure(text_color=COLOR_WORKING)
+
+        self._phase = "scraping"
+        self._pulse_base = "Scraping your collection "
+        self._pulse_dots = 0
+        self.status_var.set(self._pulse_base)
+        self._pulse_tick()
+
+        self._progress_value = 0.0
+        self._progress_direction = 1
+        self._animate_progress()
 
         threading.Thread(target=self._run_pipeline, args=(url,), daemon=True).start()
 
@@ -211,29 +293,21 @@ class CardPricingApp:
         num_cards, eta_seconds = payload
         self.num_cards = num_cards
         self.eta_seconds = eta_seconds
+        self._phase = "pricing"
         self.status_var.set(
             f"Pricing {num_cards} cards — estimated time: ~{_format_duration(eta_seconds)}"
         )
         self._tick_elapsed()
 
-    def _tick_elapsed(self):
-        if not self.is_running or self.num_cards is None or self.run_start_time is None:
-            return
-        elapsed = time.time() - self.run_start_time
-        self.status_var.set(
-            f"Pricing {self.num_cards} cards — elapsed {_format_duration(elapsed)}, "
-            f"estimated total ~{_format_duration(self.eta_seconds)}"
-        )
-        self.root.after(1000, self._tick_elapsed)
-
     def _on_run_finished(self, payload):
         filepath, count = payload
         self.last_result_path = filepath
-        self.progress.stop()
+        self._phase = "idle"
         self.is_running = False
         self.run_btn.configure(state="normal", text="Run")
         self.url_entry.configure(state="normal")
-        self.open_file_btn.configure(state="normal")
+        self.open_file_btn.configure(state="normal", text_color=COLOR_IDLE)
+        self.status_label.configure(text_color=COLOR_DONE)
         elapsed_str = (
             _format_duration(time.time() - self.run_start_time)
             if self.run_start_time else "?"
@@ -249,10 +323,11 @@ class CardPricingApp:
         )
 
     def _on_run_error(self, message: str):
-        self.progress.stop()
+        self._phase = "idle"
         self.is_running = False
         self.run_btn.configure(state="normal", text="Run")
         self.url_entry.configure(state="normal")
+        self.status_label.configure(text_color=COLOR_ERROR)
         self.status_var.set("Something went wrong — see log below, or try again.")
         messagebox.showerror("Error", message)
 
@@ -275,15 +350,9 @@ class CardPricingApp:
 
 
 def main():
-    root = tk.Tk()
-    try:
-        style = ttk.Style(root)
-        if platform.system() == "Windows" and "vista" in style.theme_names():
-            style.theme_use("vista")
-        elif "clam" in style.theme_names():
-            style.theme_use("clam")
-    except Exception:
-        pass
+    ctk.set_appearance_mode("system")
+    ctk.set_default_color_theme("blue")
+    root = ctk.CTk()
     CardPricingApp(root)
     root.mainloop()
 

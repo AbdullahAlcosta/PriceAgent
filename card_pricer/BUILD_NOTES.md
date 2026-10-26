@@ -62,6 +62,14 @@ it — no Python install, no `pip install`, no separate browser download.
   what happened to a client's "missing" run log. Keeping output outside
   the app folder means rebuilding, reinstalling, or re-unzipping a newer
   version can never touch it.
+- `gui.py` is built on **CustomTkinter** (`requirements.txt`), a thin
+  pure-Python layer over Tkinter -- rounded widgets, color themes, light/dark
+  mode -- chosen specifically to keep the bundle small (no heavy C
+  extensions, adds well under 1MB) compared to a web-based UI. It ships its
+  own PyInstaller hook so its theme/font data bundles automatically with a
+  plain `pyinstaller gui.py`; `build_windows.bat` also passes
+  `--collect-data=customtkinter` defensively in case that auto-discovery
+  ever doesn't trigger in a given environment.
 - The build script now checks the exit code after every step (pip install,
   playwright install, pyinstaller itself) and stops with a clear error
   message instead of silently continuing -- if `dist\CardPricingAgent\

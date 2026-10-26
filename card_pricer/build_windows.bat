@@ -86,6 +86,7 @@ pyinstaller --noconfirm --onedir --windowed ^
     --add-data "%PW_BROWSERS_DIR%;ms-playwright" ^
     --hidden-import=playwright.sync_api ^
     --hidden-import=tkinter ^
+    --collect-data=customtkinter ^
     gui.py
 
 if errorlevel 1 (
