@@ -53,7 +53,7 @@ def _open_path(path: str):
 class CardPricingApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        root.title("Card Pricing Agent")
+        root.title(f"Card Pricing Agent v{config.APP_VERSION}")
         root.geometry("780x560")
         root.minsize(640, 420)
 
@@ -65,6 +65,7 @@ class CardPricingApp:
         add_log_listener(lambda line: self.msg_queue.put(("log", line)))
         self.root.after(150, self._poll_queue)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        log(f"Card Pricing Agent v{config.APP_VERSION} starting (GUI).")
 
     # ------------------------------------------------------------------ UI
     def _build_widgets(self):
@@ -116,6 +117,9 @@ class CardPricingApp:
             bottom, text="Open Results Folder", command=self._open_results_folder
         ).pack(side="left", padx=(8, 0))
         ttk.Button(bottom, text="Clear Log", command=self._clear_log).pack(side="right")
+        ttk.Label(
+            bottom, text=f"v{config.APP_VERSION}", foreground="#888888"
+        ).pack(side="right", padx=(0, 10))
 
     # -------------------------------------------------------- log plumbing
     def _poll_queue(self):

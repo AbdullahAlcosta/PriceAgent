@@ -15,6 +15,7 @@ the batch always runs to completion.
 """
 
 import sys
+import config
 from scrapers.collectr import scrape_collectr_showcase
 from engine.pricing_engine import price_all_cards
 from output.excel_writer import write_cards_to_excel
@@ -22,7 +23,7 @@ from logger import log
 
 
 def run(showcase_url: str):
-    log(f"=== Card Pricing Agent starting for {showcase_url} ===")
+    log(f"=== Card Pricing Agent v{config.APP_VERSION} starting for {showcase_url} ===")
 
     cards = scrape_collectr_showcase(showcase_url)
     if not cards:

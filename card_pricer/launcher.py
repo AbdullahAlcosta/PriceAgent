@@ -46,10 +46,12 @@ def open_file(filepath: str):
 
 
 def main():
+    import config
     print("=" * 60)
-    print("  Card Pricing Agent")
+    print(f"  Card Pricing Agent v{config.APP_VERSION}")
     print("=" * 60)
     print()
+    log(f"Card Pricing Agent v{config.APP_VERSION} starting (console launcher).")
     url = input("Paste your Collectr showcase URL and press Enter:\n> ").strip()
 
     if not url:
@@ -57,7 +59,6 @@ def main():
         input("\nPress Enter to exit...")
         return
 
-    import config
     print("\nWorking on it — this may take a while for large collections.")
     print(f"Running {config.PARALLEL_WORKERS} parallel workers to speed things up.")
     print(f"(Full details are being written to {config.LOG_PATH} as it runs.)\n")
